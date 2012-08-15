@@ -1,0 +1,82 @@
+#!/bin/sh
+#
+
+set -eu
+
+if [ $# -ne 3 ]; then
+	echo "usage: helper conf workdir repo"
+	exit 1
+fi
+
+conf="$1"
+fakeroot="$2"
+repo="$3"
+
+. $conf
+
+set_files()
+{
+	local _files _file
+
+	_files=`eval $find_files`
+	for _file in ${_files}; do
+		files="${files:-}${files:+
+}  ${_file#$fakeroot}: '-'"
+	done
+}
+
+set_dirs()
+{
+	local _dirs _dir
+
+	_dirs=`eval $find_dirs`
+	for _dir in ${_dirs}; do
+		if [ "${_dir}" = "$fakeroot" ]; then
+			continue
+		fi
+		dirs="${dirs:-}${dirs:+
+}  ${_dir#$fakeroot}/: y"
+	done
+}
+
+
+set_flatsize()
+{
+
+	flatsize=`eval $find_size | awk 'BEGIN {s=0} {s+=$1} END {print s}'`
+}
+
+set_files
+set_dirs
+set_flatsize
+
+pkgroot="`mktemp -d $fakeroot/pkg.XXXXX`"
+pkgdir="${pkgroot#$fakeroot}"
+
+echo "\
+name: $name
+version: $version
+origin: $origin
+comment: $comment
+arch: $arch
+www: $www
+maintainer: $maintainer
+prefix: $prefix
+licenselogic: $licenselogic
+licenses: [$licenses]
+flatsize: $flatsize
+desc: $desc
+categories: [$categories]
+files:
+$files
+directories:
+$dirs
+${scripts:+scripts:
+  }${scripts:-}
+" > $pkgroot/+MANIFEST
+
+trap "rm $pkgroot/+MANIFEST; rmdir $pkgroot" EXIT
+
+pkg -c $fakeroot create -m $pkgdir -o $pkgdir none
+
+mv $pkgroot/$name-$version.txz $repo/All
